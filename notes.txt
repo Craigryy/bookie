@@ -1,0 +1,103 @@
+# My Notes on How Bookie CLI Works
+
+So I finally figured out how all the pieces fit together in this project! Writing this down so I don't forget later.
+
+## Shebang Line
+First thing in bookie.js is this weird line:
+```
+#!/usr/bin/env node
+```
+
+It's called a "shebang" (funny name, right?). Basically tells Linux/Mac how to run the file.
+The system sees this and goes "oh, I should use node to run this script" instead of trying to
+use bash or something. This is why you can do ./bookie.js if you make it executable with
+chmod +x. Neat trick!
+
+Without it you'd have to type "node bookie.js" every time - super annoying.
+
+## The package.json bin thing
+
+Found this in package.json:
+```
+"bin": {
+  "bookie": "./bookie.js"
+}
+```
+
+This is pretty cool - it's how npm knows to create a "bookie" command when you run npm link.
+Took me forever to figure this out! Basically:
+
+1. You run npm link
+2. npm creates some symlinks in global node_modules
+3. It also adds a "bookie" command to your PATH
+4. When you type "bookie" it runs your bookie.js file
+
+IMPORTANT: Make sure bookie.js has that shebang line or this won't work right!
+
+## How everything connects
+
+The app is split across a few files:
+
+bookie.js - Just a tiny entry point that loads index.js. Not much here.
+
+index.js - Where all the actual commands are defined. This is the main file
+that handles everything. Uses Commander.js for parsing commands which is
+WAY better than trying to parse args manually (tried that once, never again!)
+
+models.js - All the Sequelize database stuff. Folders and Files with relationships.
+Nothing fancy but it works.
+
+The flow is pretty straightforward:
+1. You type "bookie list-folders" or whatever
+2. OS runs bookie.js with node
+3. bookie.js loads index.js
+4. index.js sets up DB, then Commander parses your command
+5. The right function runs based on what you typed
+
+## DB stuff
+
+The app initializes the database first thing:
+```
+setupDB().then(() => {
+    program.parse(process.argv);
+})
+```
+
+This was important - I had bugs before when I tried to parse commands first. Always
+make sure DB is ready before doing anything else!
+
+## How commands work
+
+All commands follow the same pattern with Commander:
+```
+program
+    .command('something')
+    .description('does something cool')
+    .option('-f, --flag <value>', 'some option')
+    .action(async (opts) => {
+        // Do stuff here
+    });
+```
+
+Makes it really easy to add new commands. I like how Commander handles all the
+parsing and help text generation for you.
+
+## About IDs and deleting stuff
+
+One thing that confused me at first: when you delete something with ID 1, the next
+new item won't be ID 1 again. It'll be whatever the next number is.
+
+So if you have items with IDs 1,2,3 and delete 1, you'll have 2,3 and the next new item
+will be 4, not 1. SQLite (and most databases) work this way - they don't reuse IDs.
+
+This is actually good because otherwise things would get confusing fast if IDs kept changing!
+
+## Notes to self
+
+- Maybe add a command to export all data to JSON?
+- Look into adding colors to the terminal output
+- Need to add better validation for file contents
+- Should we enforce unique folder names? Probably...
+
+Fix that bug with extra spaces in folder names when I get time!
+

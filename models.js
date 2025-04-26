@@ -1,7 +1,7 @@
 //models.js
 const {Sequelize, DataTypes, Model} = require('sequelize');
 
-// Change to file-based database for persistence between commands
+// Create a new Sequelize instance for SQLite database
 const sequelize = new Sequelize({
     dialect: 'sqlite',
     storage: './database.sqlite'
