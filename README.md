@@ -16,7 +16,6 @@ A command-line application for organizing and managing folders and files with a 
 1. Clone the repository:
 ```bash
 git clone <repository-url>
-cd trade-track-cli
 ```
 
 2. Install dependencies:

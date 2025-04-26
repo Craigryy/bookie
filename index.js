@@ -1,52 +1,45 @@
-//index.js
+//index.js - My CLI tool for managing notes and files
 
 const { Command } = require("commander")
 const Table = require('cli-table3');
 const {Folder, File, sequelize} = require('./models');
 const { Op } = require("sequelize");
 
+// Main program
 const program = new Command();
 
-// Initialize the database
-async function initializeDatabase() {
-    try {
-        console.log('Syncing database...');
-        await sequelize.sync();
-        console.log('Database synced successfully');
-    } catch (error) {
-        console.error('Error syncing database:', error);
-        process.exit(1);
-    }
+// Make sure DB is set up before we do anything
+async function setupDB() {
+  try {
+    console.log('Setting up the database...');
+    await sequelize.sync();
+    console.log('Database ready to go!');
+  } catch (err) {
+    console.error('DB setup failed:', err);
+    process.exit(1); // bail out if db fails
+  }
 }
 
-// Call this before parsing commands
-initializeDatabase().then(() => {
-    // Parse command line arguments after database is initialized
-    program.parse(process.argv);
-}).catch(error => {
-    console.error('Failed to initialize application:', error);
-    process.exit(1);
-});
+// A function to Shows errors
+function showError(error, context) {
+  console.error(`\n❌ Error ${context}: ${error.message}`);
 
-// A simple function for error handling
-function handleError(error, context) {
-    console.error(`\n❌ Error ${context}: ${error.message}`);
-    if (error.name === 'SequelizeValidationError') {
-        error.errors.forEach(err => {
-            console.error(`  - ${err.message}`);
-        });
-    }
-    console.error('');
+  if (error.name === 'SequelizeValidationError') {
+    error.errors.forEach(err => {
+      console.error(`  - ${err.message}`);
+    });
+  }
+  console.error('');
 }
 
-// A simple command to display all commands
+// Display help info
 program
     .command('help')
     .description('Display all commands')
-    .action(()=>{
+    .action(() => {
         try {
-            // Create a new table with styled borders
-            const table = new Table({
+            // Nice looking table for commands
+            const cmdTable = new Table({
                 head: ['Command', 'Description'],
                 style: {
                     head: ['cyan', 'bold'],
@@ -54,11 +47,12 @@ program
                 }
             });
 
-            // Add rows to the table
-            table.push(
+            // All my commands
+            cmdTable.push(
                 ['create-folder', 'Create a new folder'],
                 ['list-folders', 'List all folders and files'],
                 ['update-folder', 'Update a folder'],
+                ['delete-folder', 'Delete a folder and all its files'],
                 ['add-file', 'Add a new file to a folder'],
                 ['delete-file', 'Delete a file'],
                 ['help', 'Display all commands'],
@@ -66,56 +60,50 @@ program
             );
 
             console.log('\n📚 Bookie CLI - Available Commands:\n');
-            console.log(table.toString());
+            console.log(cmdTable.toString());
             console.log('\n');
         } catch (error) {
-            handleError(error, "displaying help");
+            showError(error, "displaying help");
         }
     });
 
-// A simple command to create a new folder
+// Create a new folder
 program
     .command('create-folder')
     .description('Create a new folder')
     .option('-n, --name <name>', 'Name of the folder')
-    .option('-d, --notes <notes>', 'Notes for the folder')
-    .action(async (opts)=>{
+    .option('-d, --notes <notes>', 'Notes about the folder')
+    // opts is short for options
+    .action(async (opts) => {
         try {
-            // Check if name is provided
-            if (!opts.name) {
-                console.error('\n❌ Oops, folder name cannot be empty, please input a folder name\n');
+            // check if there is a name
+            if (!opts.name || opts.name.trim() === '') {
+                console.error('\n❌ Hey, I need an actual folder name to work with!\n');
                 return;
             }
 
-            // Check if name is empty
-            if (opts.name.trim() === '') {
-                console.error('\n❌ Oops, folder name cannot be empty, please input a folder name\n');
-                return;
-            }
-
-            // Check if notes are provided
+            // check if there are notes
             if (!opts.notes) {
-                console.error('\n❌ Notes are required. Please provide notes for the folder\n');
+                console.error('\n❌ Please add some notes about what this folder is for.\n');
                 return;
             }
 
-            // Check if folder with the same name already exists
+            // Make sure we don't create duplicate folders
             const existingFolder = await Folder.findOne({ where: { name: opts.name } });
             if (existingFolder) {
-                console.error(`\n❌ Oops, a folder named "${opts.name}" already exists. Please use a different name.\n`);
+                console.error(`\n❌ You already have a folder called "${opts.name}". Try another name.\n`);
                 return;
             }
-            // Sync the database
-            await sequelize.sync();
+
             // Create the folder
             const folder = await Folder.create({
                 name: opts.name,
                 notes: opts.notes
             });
 
-            console.log(`\n✅ Folder "${opts.name}" created successfully with ID: ${folder.id}\n`);
+            console.log(`\n✅ Created folder "${opts.name}" with ID ${folder.id}!\n`);
         } catch (error) {
-            handleError(error, "creating folder");
+            showError(error, "creating folder");
         }
     });
 
@@ -130,6 +118,7 @@ program
                 include: ['files']
             });
 
+            // check if there are any folders
             if (folders.length === 0) {
                 console.log('\n📂 No folders found. Create one using the "create-folder" command.\n');
                 return;
@@ -164,7 +153,7 @@ program
             console.log(folderTable.toString());
             console.log('\n');
         } catch (error) {
-            handleError(error, "listing folders");
+            showError(error, "listing folders");
         }
     });
 
@@ -232,121 +221,150 @@ program
 
             console.log(`\n✅ Folder with ID ${folder.id} updated successfully to "${folder.name}"\n`);
         } catch (error) {
-            handleError(error, "updating folder");
+            showError(error, "updating folder");
         }
     });
 
+// Delete a folder
 program
     .command('delete-folder')
-    .description('delete a folder by name or id')
-    .option('-n, --name <name>', 'Name of the folder')
-    .option('-i, --id <id>', 'ID of the folder')
-    .action(async (opts)=>{
+    .description('Delete a folder and all its files')
+    .option('-i, --id <id>', 'ID of the folder to delete')
+    .option('-n, --name <name>', 'Name of the folder to delete')
+    .action(async (opts) => {
         try {
-            // Check if name is provided
-            const CheckName = await Folder.findOne({where:{name:opts.name}})
-            if(!CheckName){
-                console.error(`\n❌ Oops, folder with name ${opts.name} not found. Please check the folder name\n`);
+            // Need either an ID or a name
+            if (!opts.id && !opts.name) {
+                console.error('\n❌ Please provide either a folder ID or name to delete\n');
                 return;
             }
 
-            // Check if id is provided
-            const CheckId = await Folder.findByPk(opts.id)
-            if(!CheckId){
-                console.error(`\n❌ Oops, folder with id ${opts.id} not found. Please check the folder id\n`);
+            let folder;
+
+            // Find folder by ID if provided
+            if (opts.id) {
+            
+                if (isNaN(parseInt(opts.id))) {
+                    console.error('\n❌ That\'s not a valid folder ID. Try a number.\n');
+                    return;
+                }
+                folder = await Folder.findByPk(opts.id);
+            }
+            // Otherwise find by name
+            else {
+                folder = await Folder.findOne({ where: { name: opts.name } });
+            }
+
+            // Make sure we found the folder
+            if (!folder) {
+                const searchTerm = opts.id ? `ID ${opts.id}` : `name "${opts.name}"`;
+                console.error(`\n❌ Couldn't find a folder with ${searchTerm}.\n`);
                 return;
             }
 
-            // Delete the folder
-            await Folder.destroy({where:{id:opts.id || opts.name}})
-            console.log(`\n✅ Folder with id ${opts.id || opts.name} deleted successfully\n`);
+            // Ask for confirmation before deleting
+            console.log(`\n⚠️ WARNING: You are about to delete folder "${folder.name}" and ALL its files. This cannot be undone!\n`);
 
+            // Get all files in the folder to show what will be deleted
+            const files = await File.findAll({ where: { folderId: folder.id } });
+
+            if (files.length > 0) {
+                console.log(`Files that will be deleted (${files.length}):`);
+                files.forEach(file => {
+                    console.log(`- ${file.title}`);
+                });
+                console.log('');
+            }
+
+            // Delete the folder (will cascade delete files due to relationship)
+            await folder.destroy();
+
+            console.log(`\n✅ Folder "${folder.name}" and all its files have been deleted.\n`);
         } catch (error) {
-            handleError(error, "deleting folder");
+            showError(error, "deleting folder");
         }
-    })
-// A simple command to add a file to a folder
+    });
+
+// Add a file to a folder (or default folder)
 program
     .command('add-file')
     .description('Add a file to a folder')
     .option('-n, --title <title>', 'Title of the file')
     .option('-c, --content <content>', 'Content of the file')
-    .option('-l, --label <label>', 'Label of the file')
-    .option('-f, --folder <folderId>', 'ID of the folder to add the file to (optional, default folder will be used if not provided)')
+    .option('-l, --label <label>', 'Label of the file (optional)')
+    .option('-f, --folder <folderId>', 'ID of the folder (uses Default if not specified)')
     .action(async (opts) => {
         try {
-            // Check if title is provided
+            // Gotta have a title
             if (!opts.title) {
-                console.error('\n❌ Oops, file title cannot be empty, please input a file title\n');
+                console.error('\n❌ Hey! You need to give your file a title.\n');
                 return;
             }
 
-            // Check if title is empty
             if (opts.title.trim() === '') {
-                console.error('\n❌ Oops, file title cannot be empty, please input a file title\n');
+                console.error('\n❌ Come on, empty titles are not allowed!\n');
                 return;
             }
 
-            // Create a folder variable/object 
-            let folder;
+            // Where should we put this file?
+            let targetFolder;
 
-            // If folder ID is not provided, use or create a default folder
+            // No folder specified? Let's use the Default folder
             if (!opts.folder) {
-                // Look for a default folder named "Default"
-                folder = await Folder.findOne({ where: { name: 'Default' } });
+                // Try to find our Default folder first
+                targetFolder = await Folder.findOne({ where: { name: 'Default' } });
 
-                // If default folder doesn't exist, create it
-                if (!folder) {
-                    console.log('\n📁 Creating default folder for your files...');
-                    folder = await Folder.create({
+                // Create a Default folder if we don't have one yet
+                if (!targetFolder) {
+                    console.log('\n📁 Creating a Default folder for you...');
+                    targetFolder = await Folder.create({
                         name: 'Default',
-                        notes: 'Default folder for files with no specified folder'
+                        notes: 'Files without a specific folder go here'
                     });
-                    console.log(`✅ Default folder created with ID: ${folder.id}\n`);
+                    console.log(`✅ Default folder created! (ID: ${targetFolder.id})\n`);
                 } else {
-                    console.log(`\n📁 Using default folder (ID: ${folder.id}) for this file\n`);
+                    console.log(`\n📁 Using the Default folder for this file (ID: ${targetFolder.id})\n`);
                 }
             } else {
-                // If folder ID is provided but invalid
+                // Make sure the ID is valid
                 if (isNaN(parseInt(opts.folder))) {
-                    console.error('\n❌ Invalid folder ID. Please provide a valid numeric ID\n');
+                    console.error('\n❌ That\'s not a valid folder ID. Try a number.\n');
                     return;
                 }
 
-                // Try to find the specified folder
-                folder = await Folder.findByPk(opts.folder);
+                // Find the folder they asked for
+                targetFolder = await Folder.findByPk(opts.folder);
 
-                // Check if folder exists
-                if (!folder) {
-                    console.error(`\n❌ Oops, folder with ID ${opts.folder} not found. Please check the folder ID\n`);
+                if (!targetFolder) {
+                    console.error(`\n❌ Hmm, couldn't find folder #${opts.folder}. Did you make a typo?\n`);
                     return;
                 }
             }
 
-            // Check if a file with the same title already exists in this folder
-            const existingFile = await File.findOne({
+            // Make sure we don't have duplicate titles in the same folder
+            const dupe = await File.findOne({
                 where: {
                     title: opts.title,
-                    folderId: folder.id
+                    folderId: targetFolder.id
                 }
             });
 
-            if (existingFile) {
-                console.error(`\n❌ Oops, a file titled "${opts.title}" already exists in folder "${folder.name}". Please use a different title.\n`);
+            if (dupe) {
+                console.error(`\n❌ You already have a file called "${opts.title}" in this folder. Pick a different name.\n`);
                 return;
             }
 
-            // Create the file
-            const file = await File.create({
+            // All checks passed - let's create it!
+            const newFile = await File.create({
                 title: opts.title,
                 content: opts.content || '',
                 label: opts.label || '',
-                folderId: folder.id
+                folderId: targetFolder.id
             });
 
-            console.log(`\n✅ File "${opts.title}" added to folder "${folder.name}" successfully.\n`);
+            console.log(`\n✅ Added "${opts.title}" to folder "${targetFolder.name}"!\n`);
         } catch (error) {
-            handleError(error, "adding file");
+            showError(error, "adding file");
         }
     });
 
@@ -383,6 +401,15 @@ program
 
             console.log(`\n✅ File "${fileTitle}" deleted successfully.\n`);
         } catch (error) {
-            handleError(error, "deleting file");
+            showError(error, "deleting file");
         }
     });
+
+// Start up everything
+setupDB().then(() => {
+    // We're good to go!
+    program.parse(process.argv);
+}).catch(err => {
+    console.error('Something went wrong starting up:', err);
+    process.exit(1);
+});
