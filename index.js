@@ -272,7 +272,7 @@ program
     .option('-n, --title <title>', 'Title of the file')
     .option('-c, --content <content>', 'Content of the file')
     .option('-l, --label <label>', 'Label of the file')
-    .option('-f, --folder <folderId>', 'ID of the folder to add the file to')
+    .option('-f, --folder <folderId>', 'ID of the folder to add the file to (optional, default folder will be used if not provided)')
     .action(async (opts) => {
         try {
             // Check if title is provided
@@ -287,25 +287,40 @@ program
                 return;
             }
 
-            // Check if folder ID is provided
+            // Create a folder variable/object 
+            let folder;
+
+            // If folder ID is not provided, use or create a default folder
             if (!opts.folder) {
-                console.error('\n❌ Folder ID is required. Please specify which folder to add the file to\n');
-                return;
-            }
+                // Look for a default folder named "Default"
+                folder = await Folder.findOne({ where: { name: 'Default' } });
 
-            // Check if folder ID is valid
-            if (isNaN(parseInt(opts.folder))) {
-                console.error('\n❌ Invalid folder ID. Please provide a valid numeric ID\n');
-                return;
-            }
+                // If default folder doesn't exist, create it
+                if (!folder) {
+                    console.log('\n📁 Creating default folder for your files...');
+                    folder = await Folder.create({
+                        name: 'Default',
+                        notes: 'Default folder for files with no specified folder'
+                    });
+                    console.log(`✅ Default folder created with ID: ${folder.id}\n`);
+                } else {
+                    console.log(`\n📁 Using default folder (ID: ${folder.id}) for this file\n`);
+                }
+            } else {
+                // If folder ID is provided but invalid
+                if (isNaN(parseInt(opts.folder))) {
+                    console.error('\n❌ Invalid folder ID. Please provide a valid numeric ID\n');
+                    return;
+                }
 
-            // First check if the folder exists
-            const folder = await Folder.findByPk(opts.folder);
+                // Try to find the specified folder
+                folder = await Folder.findByPk(opts.folder);
 
-            // Check if folder exists
-            if (!folder) {
-                console.error(`\n❌ Oops, folder with ID ${opts.folder} not found. Please check the folder ID\n`);
-                return;
+                // Check if folder exists
+                if (!folder) {
+                    console.error(`\n❌ Oops, folder with ID ${opts.folder} not found. Please check the folder ID\n`);
+                    return;
+                }
             }
 
             // Check if a file with the same title already exists in this folder
